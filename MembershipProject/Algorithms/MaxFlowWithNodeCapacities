@@ -1,0 +1,461 @@
+from collections import defaultdict, deque
+from fractions import Fraction
+from typing import List, Tuple, Dict, Set
+
+class LayeredFlowNetwork:
+    def __init__(self):
+        # Edge capacities: (u, v) -> capacity
+        self.edge_capacity = defaultdict(lambda: Fraction(0))
+        # Node capacities: node -> capacity
+        self.node_capacity = {}
+        # Adjacency list
+        self.graph = defaultdict(list)
+        # Layers for nodes
+        self.layers = defaultdict(set)
+        
+    def add_node(self, node: Tuple[int, int, int], capacity: Fraction, layer: int):
+        """Add node with capacity to specific layer"""
+        self.node_capacity[node] = capacity
+        self.layers[layer].add(node)
+    
+    def add_edge(self, u: Tuple[int, int, int], v: Tuple[int, int, int], 
+                 capacity: Fraction):
+        """Add directed edge from u to v with capacity"""
+        self.graph[u].append(v)
+        self.edge_capacity[(u, v)] = capacity
+    
+    def delete_nodes(self, nodes_to_delete: List[Tuple[int, int, int]]) -> 'LayeredFlowNetwork':
+        """Return new network with specified nodes deleted"""
+        new_net = LayeredFlowNetwork()
+        
+        delete_set = set(nodes_to_delete)
+        
+        # Copy nodes (except deleted ones)
+        for layer, nodes in self.layers.items():
+            for node in nodes:
+                if node not in delete_set:
+                    new_net.add_node(node, self.node_capacity[node], layer)
+        
+        # Copy edges (except those involving deleted nodes)
+        for u in self.graph:
+            if u not in delete_set:
+                for v in self.graph[u]:
+                    if v not in delete_set:
+                        new_net.add_edge(u, v, self.edge_capacity[(u, v)])
+        
+        return new_net
+    
+    def bfs_level_graph(self, source, sink, residual_edge, residual_node):
+        """Build level graph using BFS for layered network"""
+        level = {source: 0}
+        queue = deque([source])
+        
+        while queue:
+            u = queue.popleft()
+            for v in self.graph[u]:
+                if v not in level:
+                    # Check both edge and node residual capacity
+                    edge_res = residual_edge.get((u, v), Fraction(0))
+                    node_res = residual_node.get(v, Fraction(0))
+                    
+                    if edge_res > 0 and node_res > 0:
+                        level[v] = level[u] + 1
+                        queue.append(v)
+        
+        return level if sink in level else None
+    
+    def dfs_blocking_flow(self, u, sink, flow, level, residual_edge, residual_node, visited):
+        """Find blocking flow using DFS"""
+        if u == sink:
+            return flow
+        
+        for v in self.graph[u]:
+            if v not in visited and v in level and level[v] == level[u] + 1:
+                edge_res = residual_edge.get((u, v), Fraction(0))
+                node_res = residual_node.get(v, Fraction(0))
+                
+                # Bottleneck is minimum of current flow, edge residual, and node residual
+                curr_flow = min(flow, edge_res, node_res)
+                
+                if curr_flow > 0:
+                    visited.add(v)
+                    result = self.dfs_blocking_flow(v, sink, curr_flow, level, 
+                                                   residual_edge, residual_node, visited)
+                    
+                    if result > 0:
+                        # Update residual capacities
+                        residual_edge[(u, v)] -= result
+                        residual_edge[(v, u)] = residual_edge.get((v, u), Fraction(0)) + result
+                        
+                        # Update node residual (flow through node)
+                        residual_node[v] -= result
+                        residual_node[u] += result
+                        
+                        return result
+        
+        return Fraction(0)
+    
+    def max_flow(self, source: Tuple[int, int, int], 
+                 sink: Tuple[int, int, int]) -> Fraction:
+        """
+        Compute max-flow from source to sink using Dinic's algorithm
+        adapted for layered networks with node capacities
+        """
+        # Initialize residual capacities
+        residual_edge = dict(self.edge_capacity)
+        residual_node = dict(self.node_capacity)
+        
+        # Source has infinite capacity
+        residual_node[source] = Fraction(1)  # Max capacity in our network
+        
+        total_flow = Fraction(0)
+        
+        while True:
+            # Build level graph
+            level = self.bfs_level_graph(source, sink, residual_edge, residual_node)
+            
+            if level is None:
+                break  # No augmenting path
+            
+            # Find blocking flows
+            while True:
+                visited = {source}
+                flow = self.dfs_blocking_flow(source, sink, Fraction(1),
+                                             level, residual_edge, residual_node, visited)
+                if flow == 0:
+                    break
+                total_flow += flow
+        
+        return total_flow
+
+
+# Helper functions for Lean interface
+def create_network_from_lists(
+    nodes: List[Tuple[Tuple[int, int, int], str, int]],  # (node, capacity_str, layer)
+    edges: List[Tuple[Tuple[int, int, int], Tuple[int, int, int], str]]  # (u, v, capacity_str)
+) -> LayeredFlowNetwork:
+    """Create network from lists (callable from Lean)"""
+    net = LayeredFlowNetwork()
+    
+    for node, cap_str, layer in nodes:
+        capacity = Fraction(cap_str)
+        net.add_node(node, capacity, layer)
+    
+    for u, v, cap_str in edges:
+        capacity = Fraction(cap_str)
+        net.add_edge(u, v, capacity)
+    
+    return net
+
+
+def compute_max_flow(
+    nodes: List[Tuple[Tuple[int, int, int], str, int]],
+    edges: List[Tuple[Tuple[int, int, int], Tuple[int, int, int], str]],
+    source: Tuple[int, int, int],
+    sink: Tuple[int, int, int]
+) -> str:
+    """
+    Compute max-flow and return as string (for Lean interop)
+    Returns rational number as string "numerator/denominator"
+    """
+    net = create_network_from_lists(nodes, edges)
+    max_flow_value = net.max_flow(source, sink)
+    
+    return f"{max_flow_value.numerator}/{max_flow_value.denominator}"
+
+
+# ========== TEST CASES ==========
+
+def test_simple_layered_network():
+    """
+    Simple 3-layer network
+    Layer 0: (1,2,3) capacity 1
+    Layer 1: (1,3,4) capacity 1/2, (2,3,4) capacity 1/2  
+    Layer 2: (2,4,5) capacity 1
+    """
+    net = LayeredFlowNetwork()
+    
+    source = (1, 2, 3)
+    mid1 = (1, 3, 4)
+    mid2 = (2, 3, 4)
+    sink = (2, 4, 5)
+    
+    net.add_node(source, Fraction(1), 0)
+    net.add_node(mid1, Fraction(1, 2), 1)
+    net.add_node(mid2, Fraction(1, 2), 1)
+    net.add_node(sink, Fraction(1), 2)
+    
+    net.add_edge(source, mid1, Fraction(3, 4))
+    net.add_edge(source, mid2, Fraction(3, 4))
+    net.add_edge(mid1, sink, Fraction(1))
+    net.add_edge(mid2, sink, Fraction(1))
+    
+    max_flow = net.max_flow(source, sink)
+    
+    print("Test 1 - Simple layered network:")
+    print(f"  Max-flow from {source} to {sink}: {max_flow}")
+    print(f"  Expected: 1 (limited by source capacity)")
+    print(f"  Passed: {max_flow == Fraction(1)}\n")
+
+
+def test_node_deletion():
+    """Test deletion of nodes (simulating restriction set)"""
+    net = LayeredFlowNetwork()
+    
+    source = (1, 2, 3)
+    mid1 = (1, 3, 4)
+    mid2 = (2, 3, 4)
+    mid3 = (2, 4, 5)
+    mid4 = (3, 4, 5)
+    sink = (3, 5, 6)
+    
+    net.add_node(source, Fraction(1), 0)
+    net.add_node(mid1, Fraction(1, 3), 1)
+    net.add_node(mid2, Fraction(1, 3), 1)
+    net.add_node(mid3, Fraction(1, 4), 2)
+    net.add_node(mid4, Fraction(1, 4), 2)
+    net.add_node(sink, Fraction(1), 3)
+    
+    # Full bipartite edges
+    for u in [mid1, mid2]:
+        for v in [mid3, mid4]:
+            net.add_edge(u, v, Fraction(1))
+    net.add_edge(source, mid1, Fraction(1))
+    net.add_edge(source, mid2, Fraction(1))
+    net.add_edge(mid3, sink, Fraction(1))
+    net.add_edge(mid4, sink, Fraction(1))
+    
+    original_flow = net.max_flow(source, sink)
+    
+    # Delete mid3
+    net_restricted = net.delete_nodes([mid3])
+    restricted_flow = net_restricted.max_flow(source, sink)
+    
+    print("Test 2 - Node deletion:")
+    print(f"  Original max-flow: {original_flow}")
+    print(f"  After deleting {mid3}: {restricted_flow}")
+    print(f"  Flow decreased: {restricted_flow < original_flow}\n")
+
+
+def test_edge_bottleneck():
+    """Test where edge capacity is the bottleneck"""
+    net = LayeredFlowNetwork()
+    
+    source = (1, 2, 3)
+    sink = (1, 3, 4)
+    
+    net.add_node(source, Fraction(1), 0)
+    net.add_node(sink, Fraction(1), 1)
+    net.add_edge(source, sink, Fraction(1, 5))
+    
+    max_flow = net.max_flow(source, sink)
+    
+    print("Test 3 - Edge capacity bottleneck:")
+    print(f"  Max-flow: {max_flow}")
+    print(f"  Expected: 1/5")
+    print(f"  Passed: {max_flow == Fraction(1, 5)}\n")
+
+
+def test_lean_interface():
+    """Test the interface functions for Lean"""
+    nodes = [
+        ((1, 2, 3), "1", 0),
+        ((1, 3, 4), "1/2", 1),
+        ((2, 4, 5), "1", 2)
+    ]
+    edges = [
+        ((1, 2, 3), (1, 3, 4), "3/4"),
+        ((1, 3, 4), (2, 4, 5), "1")
+    ]
+    
+    result = compute_max_flow(nodes, edges, (1, 2, 3), (2, 4, 5))
+    
+    print("Test 4 - Lean interface:")
+    print(f"  Max-flow result: {result}")
+    print(f"  Expected: 1/2 (bottleneck at middle node)")
+    print(f"  Passed: {result == '1/2'}\n")
+
+
+def test_node_capacity_bottleneck():
+    """
+    Test where node capacity is the bottleneck
+    Source -> Mid1 -> Sink
+          -> Mid2 -> 
+    Both paths available but middle nodes have limited capacity
+    """
+    net = LayeredFlowNetwork()
+    
+    source = (1, 2, 3)
+    mid1 = (1, 3, 4)
+    mid2 = (2, 3, 4)
+    sink = (2, 4, 5)
+    
+    net.add_node(source, Fraction(1), 0)
+    net.add_node(mid1, Fraction(1, 4), 1)  # Node bottleneck
+    net.add_node(mid2, Fraction(1, 4), 1)  # Node bottleneck
+    net.add_node(sink, Fraction(1), 2)
+    
+    # All edges have capacity 1
+    net.add_edge(source, mid1, Fraction(1))
+    net.add_edge(source, mid2, Fraction(1))
+    net.add_edge(mid1, sink, Fraction(1))
+    net.add_edge(mid2, sink, Fraction(1))
+    
+    max_flow = net.max_flow(source, sink)
+    
+    print("Test 5 - Node capacity bottleneck:")
+    print(f"  Max-flow: {max_flow}")
+    print(f"  Expected: 1/2 (sum of mid node capacities: 1/4 + 1/4)")
+    print(f"  Passed: {max_flow == Fraction(1, 2)}\n")
+
+
+def test_complex_layered_network():
+    """
+    More complex network with 5 layers
+    Tests multiple bottlenecks and path interactions
+    """
+    net = LayeredFlowNetwork()
+    
+    # Layer 0
+    s = (1, 2, 3)
+    net.add_node(s, Fraction(1), 0)
+    
+    # Layer 1
+    a = (1, 3, 4)
+    b = (2, 3, 4)
+    net.add_node(a, Fraction(1, 3), 1)
+    net.add_node(b, Fraction(2, 3), 1)
+    
+    # Layer 2
+    c = (2, 4, 5)
+    d = (3, 4, 5)
+    net.add_node(c, Fraction(1, 4), 2)
+    net.add_node(d, Fraction(1, 2), 2)
+    
+    # Layer 3
+    e = (3, 5, 6)
+    net.add_node(e, Fraction(1, 3), 3)
+    
+    # Layer 4 (sink)
+    t = (4, 5, 7)
+    net.add_node(t, Fraction(1), 4)
+    
+    # Edges layer 0 -> 1
+    net.add_edge(s, a, Fraction(1))
+    net.add_edge(s, b, Fraction(1))
+    
+    # Edges layer 1 -> 2
+    net.add_edge(a, c, Fraction(1))
+    net.add_edge(a, d, Fraction(1))
+    net.add_edge(b, c, Fraction(1))
+    net.add_edge(b, d, Fraction(1))
+    
+    # Edges layer 2 -> 3
+    net.add_edge(c, e, Fraction(1))
+    net.add_edge(d, e, Fraction(1))
+    
+    # Edges layer 3 -> 4
+    net.add_edge(e, t, Fraction(1))
+    
+    max_flow = net.max_flow(s, t)
+    
+    print("Test 6 - Complex layered network:")
+    print(f"  Max-flow: {max_flow}")
+    print(f"  Expected: 1/3 (bottleneck at node e with capacity 1/3)")
+    print(f"  Passed: {max_flow == Fraction(1, 3)}\n")
+
+
+def test_multiple_paths_different_capacities():
+    """
+    Test network with multiple paths having different capacities
+    """
+    net = LayeredFlowNetwork()
+    
+    source = (1, 2, 3)
+    mid1 = (1, 3, 4)
+    mid2 = (2, 3, 4)
+    mid3 = (1, 4, 5)
+    sink = (2, 5, 6)
+    
+    net.add_node(source, Fraction(1), 0)
+    net.add_node(mid1, Fraction(1, 5), 1)
+    net.add_node(mid2, Fraction(2, 5), 1)
+    net.add_node(mid3, Fraction(1, 10), 2)
+    net.add_node(sink, Fraction(1), 3)
+    
+    # Path 1: source -> mid1 -> mid3 -> sink
+    net.add_edge(source, mid1, Fraction(1, 4))
+    net.add_edge(mid1, mid3, Fraction(1))
+    
+    # Path 2: source -> mid2 -> mid3 -> sink
+    net.add_edge(source, mid2, Fraction(1))
+    net.add_edge(mid2, mid3, Fraction(1))
+    
+    # Final edge
+    net.add_edge(mid3, sink, Fraction(1))
+    
+    max_flow = net.max_flow(source, sink)
+    
+    print("Test 7 - Multiple paths with different capacities:")
+    print(f"  Max-flow: {max_flow}")
+    print(f"  Expected: 1/10 (bottleneck at mid3 with capacity 1/10)")
+    print(f"  Passed: {max_flow == Fraction(1, 10)}\n")
+
+
+def test_diamond_network():
+    """
+    Diamond-shaped network
+         -> mid1 ->
+    source          sink
+         -> mid2 ->
+    """
+    net = LayeredFlowNetwork()
+    
+    source = (1, 2, 3)
+    mid1 = (1, 3, 4)
+    mid2 = (2, 3, 4)
+    sink = (2, 4, 5)
+    
+    net.add_node(source, Fraction(1), 0)
+    net.add_node(mid1, Fraction(1, 3), 1)
+    net.add_node(mid2, Fraction(2, 3), 1)
+    net.add_node(sink, Fraction(1), 2)
+    
+    net.add_edge(source, mid1, Fraction(1, 2))
+    net.add_edge(source, mid2, Fraction(1, 2))
+    net.add_edge(mid1, sink, Fraction(1))
+    net.add_edge(mid2, sink, Fraction(1))
+    
+    max_flow = net.max_flow(source, sink)
+    
+    print("Test 8 - Diamond network:")
+    print(f"  Max-flow: {max_flow}")
+    # Path through mid1: min(1/2, 1/3, 1) = 1/3
+    # Path through mid2: min(1/2, 2/3, 1) = 1/2
+    # But source only has capacity 1, and edges from source sum to 1
+    # Actually: flow through mid1 limited by min(1/2 edge, 1/3 node) = 1/3
+    #           flow through mid2 limited by min(1/2 edge, 2/3 node) = 1/2
+    # Total: 1/3 + 1/2 = 5/6, but source edges limit to 1/2 + 1/2 = 1
+    # So should be min(5/6, 1) = 5/6
+    expected = Fraction(5, 6)
+    print(f"  Expected: {expected}")
+    print(f"  Passed: {max_flow == expected}\n")
+
+
+if __name__ == "__main__":
+    print("="*60)
+    print("LAYERED FLOW NETWORK TESTS")
+    print("="*60 + "\n")
+    
+    test_simple_layered_network()
+    test_node_deletion()
+    test_edge_bottleneck()
+    test_lean_interface()
+    test_node_capacity_bottleneck()
+    test_complex_layered_network()
+    test_multiple_paths_different_capacities()
+    test_diamond_network()
+    
+    print("="*60)
+    print("ALL TESTS COMPLETE")
+    print("="*60)

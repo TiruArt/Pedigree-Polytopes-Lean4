@@ -1,0 +1,403 @@
+# MCF Integration Guide for M3P Framework
+
+## Overview
+
+This document explains how to integrate the Multicommodity Flow (MCF) problem solver into your M3P framework to check if network N_k is "well-defined" at each stage k ≥ 5.
+
+## Architecture
+
+```
+Lean4 (M3P Algorithm)
+    ↓
+    | Build MCFInput with commodities, capacities, constraints
+    ↓
+MCFInterface.lean
+    ↓
+    | Write JSON to /tmp/mcf_input.json
+    ↓
+networkx_mcf.py (Python)
+    ↓
+    | Solve LP using PuLP
+    ↓
+    | Write JSON to /tmp/mcf_output.json
+    ↓
+MCFInterface.lean
+    ↓
+    | Parse MCFResult
+    ↓
+M3P Algorithm (check wellDefined flag)
+```
+
+## Files Created
+
+1. **networkx_mcf.py** - Python LP solver for MCF problem
+2. **MCFInterface.lean** - Lean4 interface to Python solver
+3. **test_mcf_solver.py** - Test suite for MCF solver
+
+## Installation Requirements
+
+### Python Dependencies
+
+```bash
+pip install pulp --break-system-packages
+```
+
+PuLP is an LP modeler that can use various solvers:
+- CBC (default, open-source, comes with PuLP)
+- GLPK
+- CPLEX
+- Gurobi
+
+For most cases, the built-in CBC solver is sufficient.
+
+## MCF Problem Formulation
+
+### Input Structure
+
+```json
+{
+  "k": 5,
+  "commodities": [
+    {
+      "id": 1,
+      "stage": 5,
+      "source": 100,
+      "sink": 200,
+      "demand": "1/4",
+      "restrictedArcs": [[100, 150], [150, 200]]
+    },
+    ...
+  ],
+  "nodes": [100, 150, 200, ...],
+  "arcCapacities": {
+    "100_150": "1/2",
+    "150_200": "1/4"
+  },
+  "nodeCapacities": {
+    "100": "1/2",
+    "150": "1/4",
+    "200": "1/2"
+  },
+  "rigidSources": [
+    {
+      "id": 999,
+      "availability": "1/3"
+    }
+  ]
+}
+```
+
+### Output Structure
+
+```json
+{
+  "feasible": true,
+  "objectiveValue": "0.75",
+  "expectedValue": "0.75",
+  "wellDefined": true,
+  "commodityFlows": [
+    {
+      "commodityId": 1,
+      "totalFlow": "0.25",
+      "arcFlows": [
+        {"arc": [100, 150], "flow": "0.25"},
+        {"arc": [150, 200], "flow": "0.25"}
+      ]
+    }
+  ],
+  "status": "Optimal",
+  "error": null
+}
+```
+
+### Key Fields
+
+- **feasible**: Can all commodities route their flows?
+- **objectiveValue**: Total flow through designated arcs in S_k
+- **expectedValue**: Sum of demands for commodities in S_k
+- **wellDefined**: `objectiveValue ≈ expectedValue` (within tolerance)
+
+## Integration with M3P Algorithm
+
+### Step-by-Step Process
+
+#### 1. After solving F_k:
+
+```lean
+-- Extract rigid pedigrees R_k with flows μ
+let (fkResult, fkStatus) ← analyzeF_k X
+match fkStatus with
+| StageResult.failure msg => return failure
+| StageResult.success =>
+  -- Continue to MCF check if k ≥ 5
+  if k ≥ 5 then
+    -- Proceed to MCF
+  else
+    -- Continue to next stage
+```
+
+#### 2. Build MCF Input:
+
+```lean
+-- Collect all commodities from stages 5 through k
+let commodities := collectAllCommodities k allFkResults
+
+-- Build MCFInput with:
+-- - commodities: All arcs from S_5 ∪ S_6 ∪ ... ∪ S_k
+-- - arcCapacities: From current network N_k
+-- - nodeCapacities: From MIR data X
+-- - rigidSources: From R_4, R_5, ..., R_{k-1}
+
+let mcfInput := buildMCFInput k X allFkResults currentNetwork
+```
+
+#### 3. Solve MCF:
+
+```lean
+let mcfResult ← solveMCF mcfInput "networkx_mcf.py"
+```
+
+#### 4. Check Well-Defined:
+
+```lean
+if not mcfResult.wellDefined then
+  IO.println s!"✗ MCF({k}) failed - N_k not well-defined"
+  return MembershipResult.notInConvexHull s!"Failed at MCF({k})"
+
+IO.println s!"✓ MCF({k}) passed - N_k is well-defined"
+-- Continue to stage k+1
+```
+
+## Understanding "Well-Defined"
+
+### What Does It Mean?
+
+N_k is **well-defined** if:
+1. MCF(k) is **feasible** (all commodities can route)
+2. The objective value equals the expected value
+3. This means all commodities from S_5, ..., S_k can simultaneously route their required flows
+
+### Why It Might Fail?
+
+Even if each commodity individually is "packable":
+- **Arc capacity conflicts**: Multiple commodities want more total flow through an arc than its capacity
+- **Node capacity conflicts**: Multiple commodities want more total flow through a node than its capacity
+- **Restricted network conflicts**: Commodities' restricted networks might not provide enough paths
+
+### Example
+
+```
+Commodity 1: Wants 1/4 flow through node v
+Commodity 2: Wants 1/4 flow through node v
+Commodity 3: Wants 1/4 flow through node v
+
+Total demand at v: 3/4
+Node capacity at v: 1/2
+
+Result: INFEASIBLE! Cannot route all three simultaneously.
+```
+
+## Collecting Commodities
+
+### What Are Commodities?
+
+For each stage l ≥ 5:
+- The commodities S_l are the **arcs in F_l**
+- Each arc a in F_l designates a commodity s
+- Written as: a ↔ s
+
+### Collection Algorithm
+
+```lean
+def collectAllCommodities (k : ℕ) 
+    (fkResults : ∀ l, 5 ≤ l ≤ k → FkAnalysisResult l) 
+    : Array Commodity :=
+  let mut allCommodities := #[]
+  
+  -- For each stage from 5 to k
+  for l in [5:k+1] do
+    let flResult := fkResults l (by omega) (by omega)
+    
+    -- For each arc in F_l
+    for arc in flResult.arcsInFl do
+      let (srcNode, tgtNode, capacity) := arc
+      
+      -- Build restricted network N_{l-1}(s) for this commodity
+      let restrictedArcs := buildRestrictedNetwork srcNode tgtNode
+      
+      -- Create commodity
+      let commodity := {
+        id := nextId(),
+        stage := l,
+        source := srcNode.toNat,
+        sink := tgtNode.toNat,
+        demand := capacity,
+        restrictedArcs := restrictedArcs
+      }
+      
+      allCommodities := allCommodities.push commodity
+  
+  return allCommodities
+```
+
+## Building Restricted Networks
+
+### Using Restriction.computeD
+
+For each commodity s corresponding to arc (i,j,k) → (i',j',k+1):
+
+```lean
+def buildRestrictedNetwork (srcNode tgtNode : Node) 
+    : Array (Nat × Nat) :=
+  -- Convert nodes to triples
+  let t1 : Triple := nodeToTriple srcNode
+  let t2 : Triple := nodeToTriple tgtNode
+  
+  -- Compute deletion set D
+  let D := Restriction.computeD t1 t2
+  
+  -- Get all possible arcs in base network
+  let baseArcs := getAllArcsInNetwork currentNetwork
+  
+  -- Filter out arcs that involve nodes in D
+  let restrictedArcs := baseArcs.filter fun arc =>
+    not (arcInvolvesDeletedNode arc D)
+  
+  return restrictedArcs
+```
+
+### Restriction Rules (from your paper)
+
+The deletion set D includes nodes from:
+- **Rule A**: For (i,j,k), include (i,j,l) for max(j+1, 4) ≤ l < k
+- **Rule B**: For (i',j',k+1), include (i',j',l) for max(j'+1, 4) ≤ l < k
+- **Rule C**: All triples ending at layer j (with exceptions)
+- **Rule D**: All triples ending at layer j' (with exceptions)
+
+## Testing Strategy
+
+### Unit Tests
+
+1. **Test 1: Simple Feasible Case**
+   - 2 commodities
+   - No conflicts
+   - Should return wellDefined = true
+
+2. **Test 2: Bottleneck Infeasible**
+   - 2 commodities sharing bottleneck node
+   - Node capacity < sum of demands
+   - Should return wellDefined = false
+
+3. **Test 3: Example 4 from Test Suite**
+   - Multiple commodities from Example4_FailsMCF5.txt
+   - Should fail at MCF(5)
+
+### Integration Tests
+
+Test complete M3P algorithm with all 7 examples:
+- Examples 1-3 should fail before MCF
+- Example 4 should fail at MCF(5)
+- Examples 5a-5b should pass all stages including MCF
+
+## Debugging MCF
+
+### If MCF Returns Infeasible
+
+Check:
+1. **Input validity**: Are all fields correctly formatted?
+2. **Commodity demands**: Sum of demands vs available capacity
+3. **Restricted networks**: Are they too restrictive?
+4. **Node capacities**: Might be the bottleneck
+
+### Logging
+
+Enable detailed logging in networkx_mcf.py:
+
+```python
+# Add before solving
+prob.writeLP("/tmp/mcf_problem.lp")  # Write LP to file
+```
+
+Then examine /tmp/mcf_problem.lp to see the full LP formulation.
+
+### Common Issues
+
+1. **Numerical precision**: Use tolerance when comparing objective vs expected
+2. **Scaling**: Make sure capacities are properly scaled (Rat vs Int)
+3. **Empty restricted networks**: Check that restrictedArcs is not empty
+4. **Missing flow conservation**: Verify intermediate nodes have conservation constraints
+
+## Performance Considerations
+
+### LP Solver Choice
+
+- **CBC** (default): Good for small-medium problems (~1000 variables)
+- **GLPK**: Similar to CBC
+- **CPLEX/Gurobi**: Much faster for large problems (requires license)
+
+### Problem Size
+
+For n=6:
+- Layers 3-6: ~20 nodes total
+- Potential commodities: ~20-30
+- Variables: ~100-200
+- Constraints: ~100-300
+
+This is easily solvable in < 1 second with CBC.
+
+For n=10:
+- Layers 3-10: ~120 nodes
+- Potential commodities: ~200-300
+- Variables: ~1000-2000
+- Constraints: ~1000-2000
+
+Still tractable, may take 1-10 seconds.
+
+## Example Walkthrough
+
+### Scenario: k=5, n=6
+
+**After solving F_4:**
+- Extracted R_4 = {P1, P2} with μ(P1) = 1/2, μ(P2) = 1/2
+
+**After solving F_5:**
+- Extracted R_5 = {P3, P4} with μ(P3) = 1/4, μ(P4) = 1/4
+
+**Build MCF(5) Input:**
+
+Commodities S_5:
+- Commodity 1: Arc (1,2,5) → (1,2,6), demand = x(1,2,6)
+- Commodity 2: Arc (1,3,5) → (1,3,6), demand = x(1,3,6)
+- ... (all arcs in F_5)
+
+Each commodity has:
+- Restricted network N_4(s) computed via Restriction.computeD
+- Must respect node and arc capacities
+
+**Solve MCF(5):**
+```
+Result:
+  feasible: true
+  objectiveValue: 0.75
+  expectedValue: 0.75
+  wellDefined: true ✓
+```
+
+**Interpretation:**
+- All commodities from S_5 can simultaneously route
+- N_5 is well-defined
+- Continue to F_6
+
+## Next Steps
+
+1. **Implement commodity collection** in Lean
+2. **Implement restricted network builder** using Restriction module
+3. **Test MCF solver** with simple examples
+4. **Integrate into M3P** main algorithm
+5. **Run test suite** with all 7 examples
+
+## Conclusion
+
+The MCF check is crucial for verifying that individual pedigree packability extends to simultaneous feasibility. This is the key innovation that goes beyond single-commodity flow analysis.
+
+With this integration, your M3P framework can fully implement the algorithm from the paper and correctly identify membership in conv(Pedigrees_n).

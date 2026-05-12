@@ -1,0 +1,9 @@
+theorem le_one_or_gt_one (n : Nat) : n ≤ 1 ∨ 1 < n := by
+  by_cases h : n ≤ 1
+  · left; exact h
+  · right; exact Nat.lt_of_not_ge h
+
+example (n : Nat) : n ≤ 2 := by
+  rcases le_one_or_gt_one n with (h_le | h_gt)
+  · omega  -- Case n ≤ 1
+  · omega  -- Case 1 < n

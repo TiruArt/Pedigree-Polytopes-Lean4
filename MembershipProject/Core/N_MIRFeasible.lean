@@ -1,5 +1,16 @@
--- Core/N_MIRFeasible.lean
+-- File No. 7 - N_MIRFeasible.lean
+--
 -- Bridge: MIRStructure → MIRFeasible.
+-- Converts the computational MI structure (indexed by layer k and Triple)
+-- into the MIRFeasible format (indexed by stage m and position p : ℕ × ℕ).
+--
+-- The MI formulation (Problem MI(l), arXiv paper) has:
+--   U^{l-1}(p) - A^{(l)} x_l(p) = U^{(l)}(p),  4 ≤ l ≤ n
+-- which in Lean becomes:
+--   u (m+1) p + x (m+4) p = u m p  (u_rec field of MIRFeasible)
+-- where m = l - 4, so layer l = m + 4.
+--
+-- Reference: Arthanari, T.S. arXiv:2507.09069v1 [math.CO].
 
 import MembershipProject.Core.N_Basic
 import MembershipProject.Core.N_Types
@@ -15,6 +26,8 @@ open Nat
 
 -- ============================================================
 -- BRIDGE: ℕ × ℕ → Option Triple at layer k
+-- Converts a position p = (i, j) to a Triple (i, j, k)
+-- when 1 ≤ i < j < k; returns none otherwise.
 -- ============================================================
 
 def toTriple (k : ℕ) (p : ℕ × ℕ) : Option Triple :=
@@ -44,8 +57,18 @@ lemma toTriple_none_iff {k : ℕ} {p : ℕ × ℕ} :
 
 -- ============================================================
 -- LIFTING
--- liftSlack m p = U^(m+3)(p)
--- liftFlow  k p = y_k(p)   [k is the layer directly]
+-- liftSlack m p = U^{m+3}(p):
+--   the available slack of edge (i,j) at layer m+3, where p = (i,j).
+--   Records how much flow capacity remains on edge (i,j) after all
+--   insertions up to layer m+3.
+--   Converts computeSlack (indexed by layer k, Triple) to
+--   MIRFeasible.u (indexed by stage m, position p).
+--
+-- liftFlow k p = y_k(p):
+--   the insertion variable at layer k and position p = (i,j).
+--   Records the flow used by inserting vertex k into edge (i,j).
+--   Converts sparseMatVecMul (indexed by layer k, Triple) to
+--   MIRFeasible.x (indexed by layer k, position p).
 -- ============================================================
 
 noncomputable def liftSlack (n : ℕ)
@@ -57,7 +80,6 @@ noncomputable def liftSlack (n : ℕ)
       | none   => 0
     else 0
 
--- liftFlow k p = y_k(p): generation value at layer k
 noncomputable def liftFlow (n : ℕ) (mir : MIRStructure n) : ℕ → ℕ × ℕ → ℚ :=
   fun k p =>
     if hkn : k ≤ n then
@@ -72,9 +94,13 @@ noncomputable def liftFlow (n : ℕ) (mir : MIRStructure n) : ℕ → ℕ × ℕ
 
 -- ============================================================
 -- MIRStructure → MIRFeasible
--- u_rec: liftSlack (m+1) p + liftFlow (m+4) p = liftSlack m p
---   i.e. U^(m+4)(p) + y_(m+4)(p) = U^(m+3)(p)
---   which is exactly computeSlack_step rearranged.
+--
+-- The key proof obligation is u_rec:
+--   liftSlack (m+1) p + liftFlow (m+4) p = liftSlack m p
+-- which corresponds to U^{m+4}(p) + y_{m+4}(p) = U^{m+3}(p),
+-- i.e. U^{l-1}(p) - A^{(l)} x_l(p) = U^{(l)}(p) rearranged.
+-- Proved by case analysis on whether the edge at p is new
+-- (t.j + 1 = k, first appearance) or old (carried from prior layer).
 -- ============================================================
 
 noncomputable def MIRStructure.toMIRFeasible {n : ℕ} (mir : MIRStructure n)
@@ -89,32 +115,29 @@ noncomputable def MIRStructure.toMIRFeasible {n : ℕ} (mir : MIRStructure n)
     have hm3 : m + 3 ≤ n := by omega
     have hm4 : m + 4 ≤ n := hm
     simp only [dif_pos hm4, dif_pos hm3, dif_pos (show 3 ≤ m + 4 from by omega)]
-    -- case split on toTriple (m+4) p
     rcases h4 : toTriple (m + 4) p with _ | t4
-    · -- t4 = none: U^(m+4) = 0, y_(m+4) = 0, U^(m+3) must = 0
+    · -- position p not valid at layer m+4: both sides are 0
       simp only [h4]
-      -- t3 must also be none (p.2 ≥ m+4 > m+3)
       have hn4 := toTriple_none_iff.mp h4
       have hn3 : toTriple (m + 3) p = none := by
-        rw [toTriple_none_iff]; push_neg at hn4 ⊢; intro h1 h2; omega
+        rw [toTriple_none_iff]; push Not at hn4 ⊢; intro h1 h2; omega
       simp only [hn3]; ring
-    · -- t4 exists
-      have ht4 := toTriple_mem h4
+    · have ht4 := toTriple_mem h4
       have ht4_eq := toTriple_eq h4
       simp only [h4]
       rcases h3 : toTriple (m + 3) p with _ | t3
-      · -- t4 exists, t3 = none → new edge
+      · -- new edge at layer m+4: y_{m+4}(p) = 0, U^{m+4}(p) from computeSlack
         simp only [h3]
         have hn3 := toTriple_none_iff.mp h3
-        push_neg at hn3
-        -- extract p.1 = t4.i, p.2 = t4.j from ht4_eq
+        push Not at hn3
         have hi1 : 1 ≤ p.1 := by
           have := mem_Delta_i1 ht4; rw [ht4_eq] at this; simpa [Triple.i] using this
         have hij : p.1 < p.2 := by
-          have := mem_Delta_ij ht4; rw [ht4_eq] at this; simpa [Triple.i, Triple.j] using this
+          have := mem_Delta_ij ht4; rw [ht4_eq] at this
+          simpa [Triple.i, Triple.j] using this
         have hj := mem_Delta_jl ht4
         rw [ht4_eq] at hj; simp [Triple.j] at hj
-        have hge := hn3 hi1 hij  -- p.2 ≥ m + 3
+        have hge := hn3 hi1 hij
         have hnew : t4.j + 1 = m + 4 := by
           rw [ht4_eq]; simp [Triple.j]; omega
         simp only [hnew, ↓reduceIte]
@@ -123,10 +146,9 @@ noncomputable def MIRStructure.toMIRFeasible {n : ℕ} (mir : MIRStructure n)
         have hbal := mir.new_edge_bal (m + 4) (by omega) hm4 t4 ht4 hnew
         simp only [hbal, show ¬(m + 4 < m + 4) from by omega, ↓reduceIte,
                    sub_zero, zero_sub, add_zero]
-      · -- Both exist: old edge
+      · -- old edge: U^{m+4}(p) + y_{m+4}(p) = U^{m+3}(p) by recursion
         have ht3 := toTriple_mem h3
         have ht3_eq := toTriple_eq h3
-        -- t3 = (p.1, p.2, m+3) = (t4.i, t4.j, m+3)
         have hpq : p.1 = t4.i ∧ p.2 = t4.j := by
           rw [ht4_eq]; simp [Triple.i, Triple.j]
         have hold : t4.j + 1 < m + 4 := by
@@ -151,8 +173,7 @@ noncomputable def MIRStructure.toMIRFeasible {n : ℕ} (mir : MIRStructure n)
         · simp only
           split_ifs with hnew
           · norm_num
-          · -- sparseMatVecMul k P t = P (t.i, t.j, k) (old edge)
-            rw [sparseMatVecMul_old k ⟨hk3⟩ (mir.P k hk3 hkn) t hnew]
+          · rw [sparseMatVecMul_old k ⟨hk3⟩ (mir.P k hk3 hkn) t hnew]
             have hteq : t = (t.i, t.j, k) := by
               obtain ⟨ti, tj, tk⟩ := t
               have := mem_Delta_k (toTriple_mem h)

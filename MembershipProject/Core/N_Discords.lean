@@ -1,5 +1,17 @@
 -- Core/N_Discords.lean
--- Discord and adjacency. Chapter 4, Pedigree Polytopes (Arthanari, Springer Nature 2023).
+-- Discord set and adjacency in conv(P_n).
+-- Chapter 4, Pedigree Polytopes (Arthanari, Springer Nature 2023).
+--
+-- Key definitions:
+--   char_vec P   : characteristic 0-1 vector of pedigree P.
+--   discords P Q : set of layers where P and Q differ (D = {k | e^P_k ≠ e^Q_k}).
+--   edge_at P k  : the (i,j) pair of pedigree P at layer k.
+--
+-- Key theorem:
+--   adjacent_if_single_discord: if |D| = 1 then P and Q are adjacent in conv(P_n).
+--   (Lemma 5.3, Chapter 5 — used in adjacency_theorem_edges, Case 1.)
+--
+-- Reference: Arthanari, T.S. Pedigree Polytopes, Springer Nature 2023, Chapter 4.
 
 import MembershipProject.Core.N_PedigreeDefinition
 
@@ -213,7 +225,7 @@ theorem adjacent_if_single_discord {n : ℕ} (P Q : Pedigree n)
   -- Proof: assume R ≠ P and R ≠ Q, derive contradiction.
   intro R hR
   by_contra hboth
-  push_neg at hboth
+  push Not at hboth
   obtain ⟨hRP, hRQ⟩ := hboth
   -- Step 1: R agrees with P at every non-discord layer.
   -- For each layer l ≠ q: midpoint at P's triple = 1, so R carries it.

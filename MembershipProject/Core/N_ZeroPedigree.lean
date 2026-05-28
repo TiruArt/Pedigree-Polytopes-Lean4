@@ -1,3 +1,5 @@
+-- This file provides a pedigree with zero hypSum, which is used in
+-- the proof of the main theorem to show that A_{n} is full dimensional.
 import MembershipProject.Core.N_HypSum
 import Mathlib.Tactic
 

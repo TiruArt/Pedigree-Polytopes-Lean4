@@ -1,5 +1,20 @@
--- Core/N_SlackComputation.lean
--- MIR slack computation. Triple = ℕ × ℕ × ℕ.
+-- File No. 6 - N_SlackComputation.lean
+--
+-- MIR slack computation: U^{(k)}(t) for each layer k and edge t.
+--
+-- From the arXiv paper (Problem MI(l), recursive structure):
+--   U^{(l-1)}(p) - A^{(l)} x_l(p) = U^{(l)}(p),  4 ≤ l ≤ n
+-- i.e. U^{(k)}(t) = U^{(k-1)}(t) - (A^{(k)} · P)(t)
+--
+-- Base case: U^{(3)}(t) = 1 for all t (initial capacity = 1).
+-- Recursive case (k = k'+4):
+--   Old edge (t.j + 1 < k): U^{(k)}(t) = U^{(k-1)}(t.i, t.j, k-1) - A_P
+--   New edge (t.j + 1 = k): U^{(k)}(t) = 0 - A_P
+--     (edge (t.i, t.j) not yet available before layer k)
+--
+-- Pattern k'+4 avoids omega failures on Nat.sub in recursive bounds.
+--
+-- Reference: Arthanari, T.S. arXiv:2507.09069v1 [math.CO].
 
 import MembershipProject.Core.N_Basic
 import MembershipProject.Core.N_MatrixOps
@@ -10,6 +25,10 @@ open Nat
 
 -- ============================================================
 -- MIR STRUCTURE
+-- Bundles the generation vectors P_k and their validity conditions:
+--   nonneg      : P_k(t) ≥ 0 for all valid triples t
+--   new_edge_bal: (A^{(k)} · P_k)(t) = 0 for new edges
+--                 (a new edge has no prior flow to balance)
 -- ============================================================
 
 structure MIRStructure (n : ℕ) where
@@ -22,7 +41,8 @@ structure MIRStructure (n : ℕ) where
 
 -- ============================================================
 -- SLACK COMPUTATION
--- Pattern on 3 and k'+4 so recursive bounds are syntactically clear.
+-- U^{(k)}(t) = available slack of edge (t.i, t.j) at layer k.
+-- Pattern k'+4 makes recursive bounds syntactically clear to Lean.
 -- ============================================================
 
 noncomputable def computeSlack (n : ℕ) (mir : MIRStructure n) :
@@ -31,8 +51,10 @@ noncomputable def computeSlack (n : ℕ) (mir : MIRStructure n) :
   | k' + 4, hk3, hkn, t =>
     let A_P := sparseMatVecMul (k' + 4) ⟨hk3⟩ (mir.P (k' + 4) hk3 hkn) t
     if t.j + 1 < k' + 4 then
+      -- old edge: subtract flow used at this layer
       computeSlack n mir (k' + 3) (by omega) (by omega) (t.i, t.j, k' + 3) - A_P
     else
+      -- new edge: first appearance, prior slack = 0
       0 - A_P
 
 -- ============================================================
@@ -53,8 +75,9 @@ lemma computeSlack_step (n : ℕ) (mir : MIRStructure n)
       0 - A_P := rfl
 
 -- ============================================================
--- FLOW BOUNDED: y_k(t) ≤ U^(k-1)(t) for old edges
--- Stated with k'+4 to match computeSlack pattern.
+-- FLOW BOUNDED
+-- y_k(t) ≤ U^{(k-1)}(t) for old edges:
+-- the flow inserted at layer k cannot exceed the available slack.
 -- ============================================================
 
 def FlowBounded (n : ℕ) (mir : MIRStructure n) : Prop :=
@@ -64,8 +87,9 @@ def FlowBounded (n : ℕ) (mir : MIRStructure n) : Prop :=
     computeSlack n mir (k' + 3) (by omega) (by omega) (t.i, t.j, k' + 3)
 
 -- ============================================================
--- NON-NEGATIVITY via fuel induction
--- Fuel lets us apply IH to (t.i, t.j, k'+3) not just t.
+-- NON-NEGATIVITY: U^{(k)}(t) ≥ 0
+-- Proved by fuel induction, allowing the IH to be applied
+-- to (t.i, t.j, k'+3) rather than t directly.
 -- ============================================================
 
 private lemma computeSlack_nonneg_fuel (n : ℕ) (mir : MIRStructure n)
@@ -88,7 +112,8 @@ private lemma computeSlack_nonneg_fuel (n : ℕ) (mir : MIRStructure n)
       · simp only [hold, ↓reduceIte]
         have ht_prev : (t.i, t.j, k' + 3) ∈ Delta (k' + 3) :=
           mem_Delta_self t.i t.j
-            (mem_Delta_i1 ht) (mem_Delta_ij ht) (by have := mem_Delta_jl ht; omega)
+            (mem_Delta_i1 ht) (mem_Delta_ij ht)
+            (by have := mem_Delta_jl ht; omega)
         have hprev := ih (k' + 3) (by omega) (by omega) (by omega)
                         (t.i, t.j, k' + 3) ht_prev
         have hbound := hfb k' hkn' t ht hold
@@ -99,6 +124,9 @@ private lemma computeSlack_nonneg_fuel (n : ℕ) (mir : MIRStructure n)
         have hbal := mir.new_edge_bal (k' + 4) (by omega) hkn' t ht hjk
         linarith [hbal.symm.le]
 
+/-- The available slack U^{(k)}(t) is non-negative for all valid
+    triples t, provided FlowBounded holds (flow ≤ available slack).
+    Proof by fuel induction on k. -/
 theorem computeSlack_nonneg (n : ℕ) (mir : MIRStructure n)
     (hfb : FlowBounded n mir)
     (k : ℕ) (hk3 : 3 ≤ k) (hkn : k ≤ n) (t : Triple) (ht : t ∈ Delta k) :

@@ -2,7 +2,7 @@
 -- Welding conditions and graph of rigidity
 
 import MembershipProject.Core.N_Discords
-import MembershipProject.Core.N_RestrictionFull
+import MembershipProject.Core.N_Pedigree
 
 namespace MembershipProject.Core
 
@@ -18,7 +18,7 @@ def edge_of_triple (t : Triple) : ℕ × ℕ := (t.1, t.2.1)
 -- Generator availability
 -- ============================================================
 
-def generator_available {n : ℕ} (P : Pedigree n) (t : Triple) : Prop :=
+def generator_available {n : ℕ} (P : Pedigree_ n) (t : Triple) : Prop :=
   let gen_layer := max 4 t.2.1
   ∃ g ∈ generators t, P.triple_at gen_layer = g
 
@@ -26,13 +26,13 @@ def generator_available {n : ℕ} (P : Pedigree n) (t : Triple) : Prop :=
 -- Welding conditions
 -- ============================================================
 
-def condition1_weld {n : ℕ} (P Q : Pedigree n) (q : ℕ) (i : Bool) : Prop :=
+def condition1_weld {n : ℕ} (P Q : Pedigree_ n) (q : ℕ) (i : Bool) : Prop :=
   let t := if i then P.triple_at q else Q.triple_at q
   let other := if i then Q else P
   let (_, b, _) := t
   b > 3 ∧ ¬ generator_available other t ∧ b ∈ discords P Q
 
-def condition2_weld {n : ℕ} (P Q : Pedigree n) (q : ℕ) (i : Bool) : Prop :=
+def condition2_weld {n : ℕ} (P Q : Pedigree_ n) (q : ℕ) (i : Bool) : Prop :=
   let t := if i then P.triple_at q else Q.triple_at q
   let e := edge_of_triple t
   let other := if i then Q else P
@@ -42,7 +42,7 @@ def condition2_weld {n : ℕ} (P Q : Pedigree n) (q : ℕ) (i : Bool) : Prop :=
 -- Welded relation: q is welded to s (with s < q)
 -- ============================================================
 
-def welded_to {n : ℕ} (P Q : Pedigree n) (q s : ℕ) : Prop :=
+def welded_to {n : ℕ} (P Q : Pedigree_ n) (q s : ℕ) : Prop :=
   s < q ∧ s ∈ discords P Q ∧ q ∈ discords P Q ∧
   ∃ i : Bool, condition1_weld P Q q i ∨ condition2_weld P Q q i
 
@@ -51,20 +51,20 @@ def welded_to {n : ℕ} (P Q : Pedigree n) (q s : ℕ) : Prop :=
 -- vertices = discords, edges = unordered pairs where one is welded to the other
 -- ============================================================
 
-def are_adjacent {n : ℕ} (P Q : Pedigree n) (s t : ℕ) : Prop :=
+def are_adjacent {n : ℕ} (P Q : Pedigree_ n) (s t : ℕ) : Prop :=
   s ∈ discords P Q ∧ t ∈ discords P Q ∧ (welded_to P Q t s ∨ welded_to P Q s t)
 
 -- Symmetry is immediate from definition
-lemma adj_symmetric {n : ℕ} (P Q : Pedigree n) (s t : ℕ) :
+lemma adj_symmetric {n : ℕ} (P Q : Pedigree_ n) (s t : ℕ) :
     are_adjacent P Q s t → are_adjacent P Q t s := by
-  intro h
-  have hs : s ∈ discords P Q := h.1
-  have ht : t ∈ discords P Q := h.2.1
-  have h_weld : welded_to P Q t s ∨ welded_to P Q s t := h.2.2
-  exact ⟨ht, hs, h_weld.symm⟩
+    intro h
+    have hs : s ∈ discords P Q := h.1
+    have ht : t ∈ discords P Q := h.2.1
+    have h_weld : welded_to P Q t s ∨ welded_to P Q s t := h.2.2
+    exact ⟨ht, hs, h_weld.symm⟩
 
 -- Irreflexivity: no self-loops
-lemma adj_irreflexive {n : ℕ} (P Q : Pedigree n) (a : ℕ) :
+lemma adj_irreflexive {n : ℕ} (P Q : Pedigree_ n) (a : ℕ) :
     ¬ are_adjacent P Q a a := by
   intro h
   have h_weld : welded_to P Q a a ∨ welded_to P Q a a := h.2.2

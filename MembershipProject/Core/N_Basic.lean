@@ -1,6 +1,7 @@
--- Core/N_Basic.lean
+-- File No. 1 - N_Basic.lean
 -- Foundation: Triple = ℕ × ℕ × ℕ with 1 ≤ i < j < k.
--- No proof fields. Delta l = all valid triples at layer l.
+-- Delta l = all valid triples at layer l.
+-- Reference: Arthanari, T.S. Pedigree Polytopes, Springer Nature, 2023.
 
 import Mathlib.Data.Finset.Basic
 import Mathlib.Data.Finset.Prod
@@ -14,6 +15,8 @@ open Nat
 
 -- ============================================================
 -- TRIPLE: a node (i, j, k) with 1 ≤ i < j < k
+-- Represents: vertex k was inserted into edge (i,j) at layer k.
+-- Chapter 3: Multistage Insertion.
 -- ============================================================
 
 abbrev Triple := ℕ × ℕ × ℕ
@@ -26,8 +29,9 @@ end Triple
 
 -- ============================================================
 -- DELTA l = { (i, j, l) | 1 ≤ i < j < l }
--- Note: Triple = ℕ × (ℕ × ℕ), so product must be right-assoc:
---   Ico 1 l ×ˢ (Ico 1 l ×ˢ {l}) gives ℕ × (ℕ × ℕ) ✓
+-- The set of all valid triples at layer l.
+-- Triple = ℕ × (ℕ × ℕ) is right-associative, matching Lean 4's
+-- product type convention.
 -- ============================================================
 
 def Delta (l : ℕ) : Finset Triple :=
@@ -35,7 +39,7 @@ def Delta (l : ℕ) : Finset Triple :=
     fun t => t.1 < t.2.1
 
 -- ============================================================
--- MEMBERSHIP LEMMAS
+-- MEMBERSHIP LEMMAS FOR DELTA
 -- ============================================================
 
 @[simp] lemma mem_Delta_iff {l : ℕ} {t : Triple} :
@@ -82,22 +86,20 @@ lemma delta_mem_for_edge {l : ℕ} {i j : ℕ} (hi : 1 ≤ i) (hij : i < j) (hjl
   · intro h; subst h; exact ⟨⟨hi, hij, hjl, rfl⟩, rfl, rfl⟩
 
 -- ============================================================
--- GENERATION AND SLACK VECTORS
--- GenVector k: assigns ℚ to each triple at layer k
--- SlackVector k: same type
+-- LAYERED POINT AND VECTOR TYPES
+-- LayeredPoint n: assigns a rational weight to each triple (i,j,k) with k ≤ n.
+-- This represents a point in the MI formulation space.
+-- GenVector k, SlackVector k: rational-valued functions on triples at layer k,
+-- used in the layered network flow formulation (Chapter 5).
 -- ============================================================
 
-def GenVector  (k : ℕ) := Triple → ℚ
+def GenVector   (k : ℕ) := Triple → ℚ
 def SlackVector (k : ℕ) := Triple → ℚ
-
--- ============================================================
--- LAYERED POINT: X assigns ℚ to each triple (i,j,k) with k ≤ n
--- ============================================================
-
 def LayeredPoint (n : ℕ) := Triple → ℚ
 
 -- ============================================================
--- SPARSE GENERATION MATRIX (wrapper, keeps k ≥ 3 hypothesis)
+-- SPARSE GENERATION MATRIX
+-- Wrapper enforcing k ≥ 3 (layers start at 3).
 -- ============================================================
 
 structure SparseGenerationMatrix (k : ℕ) where

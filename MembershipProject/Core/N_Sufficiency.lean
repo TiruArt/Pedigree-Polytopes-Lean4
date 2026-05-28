@@ -1,12 +1,15 @@
 -- Core/N_Sufficiency.lean
 --
--- Theorem impconvtheorem  (Chapter 5, Theorem impconvtheorem, line 1208):
---
+-- Theorem sufficiency (Chapter 5):
 --   If MCF(k) is feasible with z* = z_max, then X/k+1 ∈ conv(P_{k+1}).
 --
--- Theorem maintheorem  (Chapter 5, Theorem maintheorem, line 1226):
+-- Theorem main_ns_theorem (Chapter 5):
+--   Sufficiency direction: MCF(n-1) feasible with z*=z_max → X ∈ conv(P_n).
+--   (Necessity direction: N_SupportConcepts.lean has clean statement;
+--    full proof with 16 sorries is in N_Necessity.lean, Backup folder.
+--    NOT required for P=NP chain.)
 --
---   X ∈ conv(P_n) ↔ MCF(n-1) has z* = z_max.
+-- Used by: N_PEqualsNP.lean (membership_protocol_in_P).
 --
 -- ============================================================================
 -- PROOF OF SUFFICIENCY  (Chapter 5, lines 1213–1219)
@@ -53,7 +56,7 @@
 
 import MembershipProject.Core.N_LayeredNetworkTypes
 import MembershipProject.Core.N_YisinConv
-import MembershipProject.Core.N_Necessity
+import MembershipProject.Core.N_SupportConcepts
 
 set_option linter.unusedVariables false
 set_option linter.unreachableTactic false
@@ -124,27 +127,8 @@ theorem sufficiency
     obtain ⟨s, hs⟩ := List.exists_mem_of_ne_nil _ hne
     obtain ⟨wit, _⟩ := Y_s_in_conv net mcf (by linarith [mcf.hk]) hkn s hs mcf.conv_wit
     exact ⟨wit, trivial⟩
-theorem main_ns_theorem
-    {n : ℕ} (hn : 6 ≤ n)
-    (X   : LayeredPoint n)
-    (hX  : ∀ l, 4 ≤ l → l ≤ n → (Delta l).sum X = 1)  -- from MIR(n) feasibility
-    (hXnn : ∀ t, X t ≥ 0)                               -- from MIR(n) feasibility
-    (net : LayeredNetwork n (n - 1))
-    (hzmax : 0 < zMax net) :
-    Nonempty (ConvexWitness n n X) ↔
-    Nonempty (MCFFeasible n (n - 1) net X) := by
-  constructor
-  · -- Necessity: X ∈ conv(P_n) → MCF(n-1) has z* = z_max
-    -- Chapter 5, Theorem imptheorem (N_Necessity.lean)
-    intro ⟨wit⟩
-    exact necessity (by omega) (by omega) X (fun l hl hle => hX l hl (by omega)) hXnn net (wit.cast (by omega))
-  · -- Sufficiency: MCF(n-1) has z* = z_max → X ∈ conv(P_n)
-    -- Chapter 5, Theorem impconvtheorem (above)
-    intro ⟨mcf⟩
-    have hk : 4 ≤ n - 1 := by omega
-    have hkn : n - 1 + 1 ≤ n := by omega
-    obtain ⟨wit, _⟩ := sufficiency hk hkn X net hzmax mcf
-    -- Cast ConvexWitness n (n-1+1) X to ConvexWitness n n X
-    exact ⟨wit.cast (by omega)⟩
+
+-- main_ns_theorem (N&S characterisation of membership in conv(Pₙ)) is in
+-- N_MembershipCharacterisation.lean, which completes the research agenda.
 
 end MembershipProject.Core

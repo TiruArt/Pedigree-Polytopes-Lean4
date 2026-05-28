@@ -1,5 +1,12 @@
--- N_Claim2Pedigrees.lean
--- Proves C(1,2,4) = 0 and C(1,3,4) = 0 using P1, P2, P3.
+-- Core/N_Claim2Pedigree.lean
+-- Claim 2 (Chapter 7, Arthanari 2023): c_4 = 0.
+-- Proof uses three specific pedigrees P1, P2, P3:
+--   P1: ((1,3), e^5, ...) gives c_4((1,3)) = 0
+--   P2: ((1,3),(1,4), e^6, ...) gives c_4((1,3)) + c_5((1,4)) = 0
+--   P3: ((1,2),(1,4), e^6, ...) gives c_4((1,2)) + c_5((1,4)) = 0
+-- Together: c_4((1,2)) = c_4((1,3)) = 0, hence c_4 = 0.
+-- Used by: N_FullDimensional.lean (allCoeffsZero, base case m=4).
+-- Reference: Arthanari, T.S. Pedigree Polytopes, Springer Nature 2023, Chapter 7.
 
 import MembershipProject.Core.N_HypSum
 import MembershipProject.Core.N_ZeroPedigree
@@ -57,7 +64,7 @@ def pedigree_P2 (n : ℕ) (hn : 6 ≤ n) : Pedigree n where
       exact ⟨i+2, by omega, by
         simp [generators, Triple.i, Triple.j, Triple.k]⟩
 
-lemma hypSum_P2 (n : ℕ) (hn : 6 ≤ n) (C : Triple → ℚ) :
+lemma hypSum_claim_P2 (n : ℕ) (hn : 6 ≤ n) (C : Triple → ℚ) :
     hypSum C (pedigree_P2 n hn) = C (1,3,4) := by
   simp only [hypSum, pedigree_P2, P2triangles]
   have hnil : ((List.range (n-4)).map (fun i => (i + 3, i + 4, i + 5))).filter
@@ -130,7 +137,7 @@ def pedigree_P1 (n : ℕ) (hn : 6 ≤ n) : Pedigree n where
       exact ⟨i+3, by omega, by
         simp [generators, Triple.i, Triple.j, Triple.k]⟩
 
-lemma hypSum_P1 (n : ℕ) (hn : 6 ≤ n) (C : Triple → ℚ) :
+lemma hypSum_claim_P1 (n : ℕ) (hn : 6 ≤ n) (C : Triple → ℚ) :
     hypSum C (pedigree_P1 n hn) = C (1,2,4) + C (1,4,5) := by
   simp only [hypSum, pedigree_P1, P1triangles]
   have hnil : ((List.range (n-5)).map (fun i => (i + 4, i + 5, i + 6))).filter
@@ -203,7 +210,7 @@ def pedigree_P3 (n : ℕ) (hn : 6 ≤ n) : Pedigree n where
       exact ⟨i+3, by omega, by
         simp [generators, Triple.i, Triple.j, Triple.k]⟩
 
-lemma hypSum_P3 (n : ℕ) (hn : 6 ≤ n) (C : Triple → ℚ) :
+lemma hypSum_claim_P3 (n : ℕ) (hn : 6 ≤ n) (C : Triple → ℚ) :
     hypSum C (pedigree_P3 n hn) = C (1,3,4) + C (1,4,5) := by
   simp only [hypSum, pedigree_P3, P3triangles]
   have hnil : ((List.range (n-5)).map (fun i => (i + 4, i + 5, i + 6))).filter
@@ -225,11 +232,11 @@ theorem claim2 (n : ℕ) (hn : 6 ≤ n) (C : Triple → ℚ)
     (hC : ∀ P : Pedigree n, hypSum C P = 0) :
     C (1,2,4) = 0 ∧ C (1,3,4) = 0 := by
   have hP2 : C (1,3,4) = 0 := by
-    have := hC (pedigree_P2 n hn); rw [hypSum_P2] at this; linarith
+    have := hC (pedigree_P2 n hn); rw [hypSum_claim_P2] at this; linarith
   have h145 : C (1,4,5) = 0 := by
-    have := hC (pedigree_P3 n hn); rw [hypSum_P3] at this; linarith
+    have := hC (pedigree_P3 n hn); rw [hypSum_claim_P3] at this; linarith
   have hP1 : C (1,2,4) = 0 := by
-    have := hC (pedigree_P1 n hn); rw [hypSum_P1] at this; linarith
+    have := hC (pedigree_P1 n hn); rw [hypSum_claim_P1] at this; linarith
   exact ⟨hP1, hP2⟩
 
 end MembershipProject.Core

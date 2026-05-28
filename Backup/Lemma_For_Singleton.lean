@@ -1,9 +1,10 @@
 import Mathlib.Data.Nat.Basic
 import Mathlib.Tactic.Linarith
 import Mathlib.Data.Finset.Basic
-
+import Membership_Project.Core.N_PedigreeDefinition
+import Membership_Project.Core.N_Types
 open Nat Finset
-
+open Core
 -- ============================================
 -- Definitions (axiomatized for the proof)
 -- ============================================

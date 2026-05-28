@@ -7,7 +7,7 @@
 -- ========================================================
 
 import Mathlib.Data.Rat.Defs
-import Mathlib.Data.Rat.Order
+--import Mathlib.Data.Rat.Order
 import Mathlib.Data.List.Basic
 import Mathlib.Data.List.Indexes
 import Mathlib.Algebra.Order.Ring.Rat

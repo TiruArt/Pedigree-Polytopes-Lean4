@@ -22,13 +22,13 @@
 --   u_nn   : u m p ≥ 0                             from book induction [u_nn]
 --
 -- ============================================================================
--- SORRY INVENTORY (1 mathematical sorry)
+-- SORRY INVENTORY: 0 sorries — all proofs complete.
 -- ============================================================================
 --
--- [u_nn]  u_nn field — inductive capacity argument from book:
+-- [u_nn] PROVED: inductive capacity argument.
 --   Base: ∑_{Ico 4 4} = 0 ≤ 1.
---   Step q→q+1: y(i,j,q+1) ≤ u(i,j,q) from mcf.flow_le_slack (scaled by 1/v^s),
---   so ∑_{4}^{q+1} y(i,j,l) ≤ ∑_{4}^{q} y(i,j,l) + u(i,j,q) = 1.
+--   Step: split Ico at k+2; upper half zero (Ys_norm_above_k);
+--   lower half ≤ col_sum ≤ 1 (Ys_norm_col_sum_le_one).
 
 import MembershipProject.Core.N_LayeredNetworkTypes
 import MembershipProject.Core.N_MIRFeasible

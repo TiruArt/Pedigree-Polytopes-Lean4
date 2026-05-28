@@ -1,6 +1,8 @@
--- Core/N_Types.lean
--- MIRFeasible and ConvexCombo — now using Triple = ℕ × ℕ × ℕ.
--- MIRFeasible.u and .x indexed by ℕ × ℕ (position), unchanged.
+-- File No. 2 - N_Types.lean
+-- Core types: MIRFeasible and ConvexCombo.
+-- MIRFeasible formalises the MI (Multistage Insertion) feasibility
+-- conditions for an n-city pedigree solution.
+-- Reference: Arthanari, T.S. Pedigree Polytopes, Springer Nature, 2023.
 
 import Mathlib.Data.Finset.Basic
 import Mathlib.Tactic
@@ -8,9 +10,20 @@ import Mathlib.Tactic
 namespace MembershipProject.Core
 
 /-- A MIR-feasible solution for n cities.
-    u m p = U^(m+3) at position p : ℕ × ℕ
-    x m p = y_{m+4} at position p
-    u_rec : U^(m+1)(p) + x(m+4)(p) = U^(m)(p)  -/
+
+    In the MI formulation, the layered network flow has:
+    - u m p : the flow variable U^{m+3} at position p : ℕ × ℕ
+              (layer m+3, edge position p)
+    - x m p : the insertion variable y_{m+4} at position p
+              (vertex m+4 inserted at position p)
+
+    The feasibility conditions are:
+    - u_rec : flow conservation at each layer:
+              U^{m+3}(p) = U^{m+4}(p) + y_{m+4}(p)
+              i.e. u m p = u (m+1) p + x (m+4) p
+    - x_nn  : insertion variables are non-negative
+    - u_nn  : flow variables are non-negative
+    - u0_le1: initial flow ≤ 1 (capacity constraint) -/
 structure MIRFeasible (n : ℕ) where
   u      : ℕ → ℕ × ℕ → ℚ
   x      : ℕ → ℕ × ℕ → ℚ
